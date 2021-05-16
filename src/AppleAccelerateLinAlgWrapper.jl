@@ -1,7 +1,7 @@
 module AppleAccelerateLinAlgWrapper
 
 using libblastrampoline_jll, Libdl
-using LinearAlgebra: BLAS, Adjoint, Transpose, StridedMatrix,
+using LinearAlgebra: BLAS, Adjoint, Transpose,
     UnitLowerTriangular, LowerTriangular, UnitUpperTriangular, UpperTriangular, AbstractTriangular
 import LinearAlgebra
 
@@ -65,11 +65,16 @@ untranspose_flag(A, f::Bool = false) = (A, f)
 
 
 function gemm!(
-    C::StridedMatrix{T}, A::StridedMatrix{T}, B::StridedMatrix{T}, α = one(T), β = zero(T), ::Val{BlasInt} = default_blas_int()
+    C::AbstractMatrix{T}, A::AbstractMatrix{T}, B::AbstractMatrix{T}, α = one(T), β = zero(T), ::Val{BlasInt} = default_blas_int()
 ) where {T<:Union{Float32,Float64},BlasInt}
     pA, fa = untranspose_flag(A)
     pB, fb = untranspose_flag(B)
     gemm!(ifelse(fa, 'T', 'N'), ifelse(fb, 'T', 'N'), α, parent(A), parent(B), β, C, Val(BlasInt))
+end
+function gemm(
+    A::AbstractMatrix{T}, B::AbstractMatrix{T}, α = one(T), β = zero(T), ::Val{BlasInt} = default_blas_int()
+) where {T<:Union{Float32,Float64},BlasInt<:Union{Int32,Int64}}
+    gemm!(similar(A, (size(A,1),size(B,2))), A, B, α, β, Val(BlasInt))
 end
 
 struct LU{T,M<:StridedMatrix{T},BlasInt}
@@ -131,7 +136,13 @@ function ldiv!(
     trsm!(A, one(T), B, 'L', Val(BlasInt))
 end
 
-
+function _ipiv_rows!(A::LU, order::OrdinalRange, B::StridedVecOrMat)
+    @inbounds for i ∈ order
+        i ≠ A.ipiv[i] && LinearAlgebra._swap_rows!(B, i, A.ipiv[i])
+    end
+    B
+end
+_apply_ipiv_rows!(A::LU, B::StridedVecOrMat) = _ipiv_rows!(A, 1 : length(A.ipiv), B)
 function _ipiv_cols!(A::LU, order::OrdinalRange, B::StridedVecOrMat)
     ipiv = A.ipiv
     @inbounds for i ∈ order
@@ -139,26 +150,25 @@ function _ipiv_cols!(A::LU, order::OrdinalRange, B::StridedVecOrMat)
     end
     B
 end
-_apply_ipiv_rows!(A::LU, B::StridedVecOrMat) = _ipiv_rows!(A, 1 : length(A.ipiv), B)
 _apply_inverse_ipiv_cols!(A::LU, B::StridedVecOrMat) = _ipiv_cols!(A, length(A.ipiv) : -1 : 1, B)
-function rdiv!(A::StridedMatrix, B::LU{<:Any,<:StridedMatrix,BlasInt}) where {BlasInt}
+function rdiv!(A::AbstractMatrix, B::LU{<:Any,<:AbstractMatrix,BlasInt}) where {BlasInt}
     rdiv!(rdiv!(A, UpperTriangular(B.factors), Val(BlasInt)), UnitLowerTriangular(B.factors), Val(BlasInt))
-    LinearAlgebra._apply_inverse_ipiv_cols!(B, A) # mutates `A`
+    _apply_inverse_ipiv_cols!(B, A) # mutates `A`
 end
-function ldiv!(A::LU{<:Any,<:StridedMatrix,BlasInt}, B::StridedMatrix) where {BlasInt}
+function ldiv!(A::LU{<:Any,<:AbstractMatrix,BlasInt}, B::AbstractMatrix) where {BlasInt}
     _apply_ipiv_rows!(A, B)
-    ldiv!(UpperTriangular(A.factors), ldiv!(UnitLowerTriangular(A.factors), B))
+    ldiv!(ldiv!(B, UnitLowerTriangular(A.factors), Val(BlasInt)), UpperTriangular(A.factors), Val(BlasInt))
 end
 
-function rdiv!(A::StridedMatrix, B::StridedMatrix, ::Val{BlasInt} = default_blas_int()) where {BlasInt}
+function rdiv!(A::AbstractMatrix, B::AbstractMatrix, ::Val{BlasInt} = default_blas_int()) where {BlasInt}
     rdiv!(A, lu!(B, Val(BlasInt)))
 end
-function ldiv!(A::StridedMatrix, B::StridedMatrix, ::Val{BlasInt} = default_blas_int()) where {BlasInt}
+function ldiv!(A::AbstractMatrix, B::AbstractMatrix, ::Val{BlasInt} = default_blas_int()) where {BlasInt}
     ldiv!(lu!(A, Val(BlasInt)), B)
 end
 
-rdiv(A::StridedMatrix, B, ::Val{BlasInt} = default_blas_int()) where {BlasInt} = rdiv!(copy(A), copy(B), Val(BlasInt))
-ldiv(A::StridedMatrix, B, ::Val{BlasInt} = default_blas_int()) where {BlasInt} = ldiv!(copy(A), copy(B), Val(BlasInt))
+rdiv(A::AbstractMatrix, B, ::Val{BlasInt} = default_blas_int()) where {BlasInt} = rdiv!(copy(A), copy(B), Val(BlasInt))
+ldiv(A::AbstractMatrix, B, ::Val{BlasInt} = default_blas_int()) where {BlasInt} = ldiv!(copy(A), copy(B), Val(BlasInt))
 
 function __init__()
     LIBBLASTRAMPOLINE_HANDLE[] = libblastrampoline_jll.libblastrampoline_handle
