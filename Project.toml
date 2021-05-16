@@ -3,6 +3,11 @@ uuid = "5ee7ec8a-f856-4eab-b505-f9c6f42fedcc"
 authors = ["Chris Elrod <elrodc@gmail.com>", "Elliot Saba", "and contributors."]
 version = "0.1.0"
 
+[deps]
+Libdl = "8f399da3-3557-5675-b5ff-fb832c97cbdb"
+LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
+libblastrampoline_jll = "8e850b90-86db-534c-a0d3-1478176c7d93"
+
 [compat]
 julia = "1.6"
 
